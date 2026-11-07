@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,23 +29,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,6 +63,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -89,6 +99,7 @@ import com.example.ui.theme.PayableRose
 import com.example.ui.viewmodel.FinancialViewModel
 import com.example.ui.viewmodel.ThemeViewModel
 import com.example.util.BackupManager
+import com.example.util.CurrencyFormatter
 import com.example.util.DateUtils
 import com.example.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +108,48 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+enum class SettingsCategory(
+    val title: String,
+    val description: String,
+    val icon: ImageVector
+) {
+    PROFILE(
+        title = "Perfil",
+        description = "Identificação pessoal, carteira e preferências",
+        icon = Icons.Default.Person
+    ),
+    BACKUP(
+        title = "Backup e Restauração",
+        description = "Exportar, importar e histórico de cópias",
+        icon = Icons.Default.Backup
+    ),
+    SECURITY(
+        title = "Segurança e Privacidade",
+        description = "Bloqueio por PIN, ocultação de saldos e LGPD",
+        icon = Icons.Default.Security
+    ),
+    NOTIFICATIONS(
+        title = "Notificações",
+        description = "Lembretes diários de vencimentos (08:00)",
+        icon = Icons.Default.NotificationsActive
+    ),
+    PREFERENCES(
+        title = "Preferências",
+        description = "Tema do aplicativo, moeda e exibição",
+        icon = Icons.Default.Tune
+    ),
+    DATA_STORAGE(
+        title = "Dados e Armazenamento",
+        description = "Métricas do banco, diagnóstico e zona de perigo",
+        icon = Icons.Default.Storage
+    ),
+    ABOUT(
+        title = "Sobre o Aplicativo",
+        description = "Versão 1.1 (v2) e arquitetura 100% offline",
+        icon = Icons.Default.Info
+    )
+}
 
 @Composable
 fun SettingsScreen(
@@ -107,15 +160,55 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    // Navigation state
+    var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
+
+    // Intercept back button when inside a subcategory
+    BackHandler(enabled = selectedCategory != null) {
+        selectedCategory = null
+    }
+
+    // State from ThemeViewModel
     val themeMode by themeViewModel.themeMode.collectAsStateWithLifecycle()
     val lastBackupTime by themeViewModel.lastBackupTime.collectAsStateWithLifecycle()
     val lastExportedTime by themeViewModel.lastExportedTime.collectAsStateWithLifecycle()
     val isPrivacyMode by themeViewModel.isPrivacyMode.collectAsStateWithLifecycle()
     val isPinConfigured by themeViewModel.isPinConfigured.collectAsStateWithLifecycle()
-    val backupRecords by financialViewModel.backupRecords.collectAsStateWithLifecycle()
     val skipDriveNotice by themeViewModel.skipDriveNotice.collectAsStateWithLifecycle()
 
-    // Drive Account / Storage notice dialog state
+    val userName by themeViewModel.userName.collectAsStateWithLifecycle()
+    val userNickname by themeViewModel.userNickname.collectAsStateWithLifecycle()
+    val walletName by themeViewModel.walletName.collectAsStateWithLifecycle()
+    val defaultCurrency by themeViewModel.defaultCurrency.collectAsStateWithLifecycle()
+    val dateFormat by themeViewModel.dateFormat.collectAsStateWithLifecycle()
+    val appStartDate by themeViewModel.appStartDate.collectAsStateWithLifecycle()
+    val notifyPayables by themeViewModel.notifyPayables.collectAsStateWithLifecycle()
+    val notifyReceivables by themeViewModel.notifyReceivables.collectAsStateWithLifecycle()
+    val notificationTime by themeViewModel.notificationTime.collectAsStateWithLifecycle()
+
+    // State from FinancialViewModel
+    val backupRecords by financialViewModel.backupRecords.collectAsStateWithLifecycle()
+    val rawLoans by financialViewModel.rawLoans.collectAsStateWithLifecycle()
+    val rawReceivables by financialViewModel.rawReceivables.collectAsStateWithLifecycle()
+    val rawPayables by financialViewModel.rawPayables.collectAsStateWithLifecycle()
+    val rawHistory by financialViewModel.rawHistory.collectAsStateWithLifecycle()
+
+    // Calculated real metrics
+    val totalReceived = remember(rawLoans, rawReceivables) {
+        rawLoans.sumOf { it.amountReceived } + rawReceivables.sumOf { it.amountReceived }
+    }
+    val totalPaid = remember(rawPayables) {
+        rawPayables.sumOf { it.amountPaid }
+    }
+    val usageStartDate = remember(rawLoans, rawReceivables, rawPayables, appStartDate) {
+        val dates = mutableListOf<Long>()
+        rawLoans.forEach { dates.add(it.createdAt) }
+        rawReceivables.forEach { dates.add(it.createdAt) }
+        rawPayables.forEach { dates.add(it.createdAt) }
+        if (dates.isNotEmpty()) dates.minOrNull() ?: appStartDate else appStartDate
+    }
+
+    // Drive Account notice dialog state
     var showDriveNoticeDialog by remember { mutableStateOf(false) }
     var pendingDriveNoticeAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var dontShowDriveNoticeAgain by remember { mutableStateOf(false) }
@@ -130,11 +223,19 @@ fun SettingsScreen(
         }
     }
 
+    // Profile Edit Dialog State
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var editNameInput by remember { mutableStateOf(userName) }
+    var editNicknameInput by remember { mutableStateOf(userNickname) }
+    var editWalletInput by remember { mutableStateOf(walletName) }
+    var editCurrencyInput by remember { mutableStateOf(defaultCurrency) }
+    var editDateFormatInput by remember { mutableStateOf(dateFormat) }
+
     // Export with Password Dialog state
     var showExportPasswordDialog by remember { mutableStateOf(false) }
     var exportPasswordInput by remember { mutableStateOf("") }
     var exportUseEncryption by remember { mutableStateOf(true) }
-    var exportPendingAction by remember { mutableStateOf<String?>(null) } // "SAVE" or "SHARE" or "VIEW"
+    var exportPendingAction by remember { mutableStateOf<String?>(null) } // "SAVE" or "SHARE"
 
     // Raw JSON view dialog
     var showExportTextDialog by remember { mutableStateOf(false) }
@@ -188,7 +289,7 @@ fun SettingsScreen(
         }
     }
 
-    // Export Document Launcher (Storage Access Framework: Google Drive, SD Card, Local)
+    // Export Document Launcher
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -214,7 +315,7 @@ fun SettingsScreen(
         }
     }
 
-    // Import Document Launcher (Select real .json file)
+    // Import Document Launcher
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -250,478 +351,357 @@ fun SettingsScreen(
         }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-
-        // 1. Theme Mode Section
-        item {
-            SettingsCard(
-                title = "Aparência e Tema",
-                icon = Icons.Default.Brightness4
+    Box(modifier = modifier.fillMaxSize()) {
+        if (selectedCategory == null) {
+            // ==========================================
+            // CENTRAL DE CONFIGURAÇÕES (HUB PRINCIPAL)
+            // ==========================================
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        RadioButton(
-                            selected = themeMode == "DARK",
-                            onClick = { themeViewModel.setThemeMode("DARK") },
-                            modifier = Modifier.testTag("theme_dark_radio")
-                        )
-                        Text("Modo Escuro (Recomendado / Fintech style)")
-                    }
+                // Header: Profile Presentation Card
+                item {
+                    UserProfileHeaderCard(
+                        userName = userName,
+                        userNickname = userNickname,
+                        walletName = walletName,
+                        defaultCurrency = defaultCurrency,
+                        totalReceived = totalReceived,
+                        totalPaid = totalPaid,
+                        startDate = usageStartDate,
+                        onEditProfile = {
+                            editNameInput = userName
+                            editNicknameInput = userNickname
+                            editWalletInput = walletName
+                            editCurrencyInput = defaultCurrency
+                            editDateFormatInput = dateFormat
+                            showEditProfileDialog = true
+                        },
+                        onOpenProfileCategory = {
+                            selectedCategory = SettingsCategory.PROFILE
+                        }
+                    )
+                }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        RadioButton(
-                            selected = themeMode == "LIGHT",
-                            onClick = { themeViewModel.setThemeMode("LIGHT") },
-                            modifier = Modifier.testTag("theme_light_radio")
-                        )
-                        Text("Modo Claro")
-                    }
+                // Section Divider / Subtitle
+                item {
+                    Text(
+                        text = "Categorias de Ajustes",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+                    )
+                }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        RadioButton(
-                            selected = themeMode == "SYSTEM",
-                            onClick = { themeViewModel.setThemeMode("SYSTEM") },
-                            modifier = Modifier.testTag("theme_system_radio")
-                        )
-                        Text("Seguir Padrão do Sistema")
-                    }
+                // 7 Independent Category Rows
+                items(SettingsCategory.values()) { category ->
+                    CategoryMenuItem(
+                        category = category,
+                        onClick = { selectedCategory = category }
+                    )
                 }
             }
-        }
-
-        // 2. Privacy & Security Section
-        item {
-            SettingsCard(
-                title = "Segurança e Privacidade",
-                icon = Icons.Default.Security,
-                iconColor = ExpectedTeal
+        } else {
+            // ==========================================
+            // TELA ESPECÍFICA DA CATEGORIA SELECIONADA
+            // ==========================================
+            val currentCat = selectedCategory!!
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Category Subscreen Top Navigation Bar
+                item {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Ocultar Valores na Tela (Modo Privacidade)",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = "Mascara saldos no dashboard (exibe R$ ••••••). Pode ser alternado pelo ícone de olho no cabeçalho.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = isPrivacyMode,
-                            onCheckedChange = { themeViewModel.togglePrivacyMode() },
-                            modifier = Modifier.testTag("switch_privacy_mode")
-                        )
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Bloqueio do Aplicativo por PIN",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                text = if (isPinConfigured) "Proteção por PIN ativa. O aplicativo exige autenticação ao abrir."
-                                else "Defina um PIN numérico para proteger o acesso aos seus dados financeiros.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        IconButton(
+                            onClick = { selectedCategory = null },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Voltar",
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = currentCat.icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = currentCat.title,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = currentCat.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                // Content specific to selected category
+                when (currentCat) {
+                    SettingsCategory.PROFILE -> {
+                        item {
+                            ProfileCategoryContent(
+                                userName = userName,
+                                userNickname = userNickname,
+                                walletName = walletName,
+                                defaultCurrency = defaultCurrency,
+                                dateFormat = dateFormat,
+                                startDate = usageStartDate,
+                                totalReceived = totalReceived,
+                                totalPaid = totalPaid,
+                                onEditClicked = {
+                                    editNameInput = userName
+                                    editNicknameInput = userNickname
+                                    editWalletInput = walletName
+                                    editCurrencyInput = defaultCurrency
+                                    editDateFormatInput = dateFormat
+                                    showEditProfileDialog = true
+                                }
+                            )
+                        }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (isPinConfigured) {
-                            Button(
-                                onClick = {
+                    SettingsCategory.BACKUP -> {
+                        item {
+                            BackupCategoryContent(
+                                lastBackupTime = lastBackupTime,
+                                lastExportedTime = lastExportedTime,
+                                backupRecords = backupRecords,
+                                onSaveFile = {
+                                    exportPendingAction = "SAVE"
+                                    exportPasswordInput = ""
+                                    exportUseEncryption = true
+                                    showExportPasswordDialog = true
+                                },
+                                onShareFile = {
+                                    exportPendingAction = "SHARE"
+                                    exportPasswordInput = ""
+                                    exportUseEncryption = true
+                                    showExportPasswordDialog = true
+                                },
+                                onImportFile = {
+                                    triggerDriveNoticeOrExecute {
+                                        openDocumentLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                                    }
+                                },
+                                onRestoreText = {
+                                    showRestoreTextDialog = true
+                                },
+                                onViewRawJson = {
+                                    exportedJsonText = financialViewModel.generateBackupJson(password = null)
+                                    showExportTextDialog = true
+                                }
+                            )
+                        }
+                    }
+
+                    SettingsCategory.SECURITY -> {
+                        item {
+                            SecurityCategoryContent(
+                                isPrivacyMode = isPrivacyMode,
+                                onTogglePrivacyMode = { themeViewModel.togglePrivacyMode() },
+                                isPinConfigured = isPinConfigured,
+                                onSetOrChangePin = {
                                     newPinInput = ""
                                     confirmPinInput = ""
                                     pinDialogError = ""
                                     showPinDialog = true
                                 },
-                                modifier = Modifier.weight(1f).testTag("btn_change_pin")
-                            ) {
-                                Text("Alterar PIN", fontSize = 12.sp)
-                            }
-
-                            OutlinedButton(
-                                onClick = {
+                                onRemovePin = {
                                     themeViewModel.removeAppPin()
                                     Toast.makeText(context, "PIN de segurança removido.", Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.weight(1f).testTag("btn_remove_pin")
-                            ) {
-                                Text("Remover PIN", fontSize = 12.sp)
-                            }
-                        } else {
-                            Button(
-                                onClick = {
-                                    newPinInput = ""
-                                    confirmPinInput = ""
-                                    pinDialogError = ""
-                                    showPinDialog = true
-                                },
-                                modifier = Modifier.fillMaxWidth().testTag("btn_set_pin")
-                            ) {
-                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Ativar Proteção por PIN")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Notifications & Due Reminders Section (08:00)
-        item {
-            SettingsCard(
-                title = "Notificações e Lembretes (08:00)",
-                icon = Icons.Default.NotificationsActive,
-                iconColor = MaterialTheme.colorScheme.primary
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Lembretes programados diariamente às 08:00 sobre contas a pagar, empréstimos e recebimentos que vencem no dia ou estão em atraso (ignora registros quitados).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Nota técnica: O horário exato de entrega pode sofrer pequenas variações pelas diretrizes de economia de bateria (Doze Mode) do Android.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        NotificationHelper.checkAndShowDueNotification(context, isTest = true)
-                                    }
+                                onLockNow = {
+                                    themeViewModel.lockApp()
+                                    Toast.makeText(context, "Aplicativo bloqueado com segurança.", Toast.LENGTH_SHORT).show()
                                 }
-                            },
-                            modifier = Modifier.weight(1f).testTag("btn_test_notification")
-                        ) {
-                            Text("Testar Notificação (08h)", fontSize = 11.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    NotificationHelper.checkAndNotifyAssistedBackup(context, isTest = true)
-                                }
-                                Toast.makeText(context, "Lembrete de backup assistido gerado!", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.weight(1f).testTag("btn_test_backup_notification")
-                        ) {
-                            Text("Aviso Backup Pronto", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Secure Backup & Restore Section (AES-256-GCM + SAF)
-        item {
-            SettingsCard(
-                title = "Backup e Restauração Segura",
-                icon = Icons.Default.Backup
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = if (lastBackupTime > 0) {
-                                "Último backup gerado em: ${DateUtils.formatDateTime(lastBackupTime)}"
-                            } else {
-                                "Nenhum backup registrado até o momento."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (lastExportedTime > 0) {
-                            Text(
-                                text = "Última exportação externa confirmada: ${DateUtils.formatDateTime(lastExportedTime)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ExpectedTeal
                             )
                         }
                     }
 
-                    Text(
-                        text = "Exportação Segura (Criptografia AES-256-GCM / Sem Conta Google):",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                exportPendingAction = "SAVE"
-                                exportPasswordInput = ""
-                                exportUseEncryption = true
-                                showExportPasswordDialog = true
-                            },
-                            modifier = Modifier.weight(1f).testTag("btn_export_backup_file")
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Salvar .json", fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                exportPendingAction = "SHARE"
-                                exportPasswordInput = ""
-                                exportUseEncryption = true
-                                showExportPasswordDialog = true
-                            },
-                            modifier = Modifier.weight(1f).testTag("btn_share_backup_file")
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Compartilhar", fontSize = 12.sp)
-                        }
-                    }
-
-                    Text(
-                        text = "Restauração de Dados (Transacional e Segura):",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                triggerDriveNoticeOrExecute {
-                                    openDocumentLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
-                                }
-                            },
-                            modifier = Modifier.weight(1f).testTag("btn_import_backup_file")
-                        ) {
-                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Selecionar .json", fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = { showRestoreTextDialog = true },
-                            modifier = Modifier.weight(1f).testTag("btn_restore_text")
-                        ) {
-                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Colar Texto", fontSize = 12.sp)
-                        }
-                    }
-
-                    TextButton(
-                        onClick = {
-                            exportedJsonText = financialViewModel.generateBackupJson(password = null)
-                            showExportTextDialog = true
-                        },
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    ) {
-                        Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ver código JSON não criptografado", fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        // 5. Backup History & Audit Section (Section 5.1)
-        item {
-            SettingsCard(
-                title = "Histórico de Backups e Auditoria",
-                icon = Icons.Default.History,
-                iconColor = MaterialTheme.colorScheme.primary
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Registro local de integridade com status de geração e exportação confirmada:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    if (backupRecords.isEmpty()) {
-                        Text(
-                            text = "Nenhum histórico de backup registrado até o momento.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            backupRecords.take(5).forEach { record ->
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp).fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = record.fileName,
-                                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                                maxLines = 1
-                                            )
-                                            Text(
-                                                text = "${DateUtils.formatDateTime(record.timestamp)} • ${String.format("%.1f KB", record.fileSize / 1024.0)} • v${record.backupVersion}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-
-                                        Surface(
-                                            color = when (record.status) {
-                                                "EXPORTADO" -> ExpectedTeal.copy(alpha = 0.2f)
-                                                "GERADO" -> MaterialTheme.colorScheme.primaryContainer
-                                                else -> OverdueRed.copy(alpha = 0.2f)
-                                            },
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Text(
-                                                text = if (record.isEncrypted) "${record.status} (AES)" else record.status,
-                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                color = when (record.status) {
-                                                    "EXPORTADO" -> ExpectedTeal
-                                                    "GERADO" -> MaterialTheme.colorScheme.primary
-                                                    else -> OverdueRed
-                                                },
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
+                    SettingsCategory.NOTIFICATIONS -> {
+                        item {
+                            NotificationsCategoryContent(
+                                notifyPayables = notifyPayables,
+                                onToggleNotifyPayables = { themeViewModel.setNotifyPayables(it) },
+                                notifyReceivables = notifyReceivables,
+                                onToggleNotifyReceivables = { themeViewModel.setNotifyReceivables(it) },
+                                notificationTime = notificationTime,
+                                onTestDueNotification = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            NotificationHelper.checkAndShowDueNotification(context, isTest = true)
                                         }
                                     }
+                                },
+                                onTestBackupNotification = {
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        NotificationHelper.checkAndNotifyAssistedBackup(context, isTest = true)
+                                    }
+                                    Toast.makeText(context, "Lembrete de backup assistido gerado!", Toast.LENGTH_SHORT).show()
                                 }
-                            }
+                            )
+                        }
+                    }
+
+                    SettingsCategory.PREFERENCES -> {
+                        item {
+                            PreferencesCategoryContent(
+                                themeMode = themeMode,
+                                onSetThemeMode = { themeViewModel.setThemeMode(it) },
+                                defaultCurrency = defaultCurrency,
+                                dateFormat = dateFormat
+                            )
+                        }
+                    }
+
+                    SettingsCategory.DATA_STORAGE -> {
+                        item {
+                            DataStorageCategoryContent(
+                                totalLoans = rawLoans.size,
+                                totalReceivables = rawReceivables.size,
+                                totalPayables = rawPayables.size,
+                                totalHistory = rawHistory.size,
+                                hasSafetyBackup = financialViewModel.hasSafetyBackup(),
+                                onOpenDiagnostics = { showDiagnosticsDialog = true },
+                                onClearDatabase = { showClearWarningDialog = true },
+                                onEmergencyRestore = { showEmergencyRestoreDialog = true }
+                            )
+                        }
+                    }
+
+                    SettingsCategory.ABOUT -> {
+                        item {
+                            AboutCategoryContent()
                         }
                     }
                 }
             }
         }
+    }
 
-        // 6. App Diagnostics Section (Section 5.2)
-        item {
-            SettingsCard(
-                title = "Diagnóstico do Aplicativo",
-                icon = Icons.Default.Info,
-                iconColor = MaterialTheme.colorScheme.secondary
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Verifique o estado de saúde do banco de dados, armazenamento e agendamentos locais.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+    // ==========================================
+    // DIÁLOGOS DO SISTEMA
+    // ==========================================
 
-                    Button(
-                        onClick = { showDiagnosticsDialog = true },
-                        modifier = Modifier.fillMaxWidth().testTag("btn_open_diagnostics")
-                    ) {
-                        Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Executar Diagnóstico Técnico")
-                    }
-                }
-            }
-        }
-
-        // 7. Danger Zone & Emergency Safety Restore (Section 2.3 & 5.3)
-        item {
-            SettingsCard(
-                title = "Zona de Perigo / Recuperação",
-                icon = Icons.Default.DeleteForever,
-                iconColor = PayableRose
-            ) {
+    // --- Profile Edit Dialog ---
+    if (showEditProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Editar Perfil Pessoal",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Exclusão total com criação automática de backup de segurança pré-limpeza.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    OutlinedTextField(
+                        value = editNameInput,
+                        onValueChange = { editNameInput = it },
+                        label = { Text("Nome de Exibição") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("edit_user_name_input")
                     )
 
-                    if (financialViewModel.hasSafetyBackup()) {
-                        OutlinedButton(
-                            onClick = { showEmergencyRestoreDialog = true },
-                            modifier = Modifier.fillMaxWidth().testTag("btn_emergency_restore")
-                        ) {
-                            Icon(Icons.Default.Restore, contentDescription = null, tint = ExpectedTeal)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Restaurar Cópia de Emergência Pré-Limpeza", color = ExpectedTeal)
-                        }
-                    }
-
-                    Button(
-                        onClick = { showClearWarningDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = OverdueRed),
-                        modifier = Modifier.fillMaxWidth().testTag("btn_clear_db")
-                    ) {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Limpar Banco de Dados (2 Etapas)")
-                    }
-                }
-            }
-        }
-
-        // 8. About Section (Commercial Offline Release)
-        item {
-            SettingsCard(
-                title = "Sobre o Aplicativo",
-                icon = Icons.Default.CheckCircle
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Controle Financeiro Comercial v1.0",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = editNicknameInput,
+                        onValueChange = { editNicknameInput = it },
+                        label = { Text("Apelido / Cargo") },
+                        placeholder = { Text("Ex: Gestor Financeiro") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("edit_user_nickname_input")
                     )
-                    Text(
-                        text = "100% Offline • Sem servidores externos • Criptografia AES-256-GCM • Privacidade Conforme LGPD",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                    OutlinedTextField(
+                        value = editWalletInput,
+                        onValueChange = { editWalletInput = it },
+                        label = { Text("Nome da Carteira") },
+                        placeholder = { Text("Ex: Carteira Principal") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("edit_wallet_name_input")
+                    )
+
+                    OutlinedTextField(
+                        value = editCurrencyInput,
+                        onValueChange = { editCurrencyInput = it },
+                        label = { Text("Moeda Padrão") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = editDateFormatInput,
+                        onValueChange = { editDateFormatInput = it },
+                        label = { Text("Formato de Data") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        themeViewModel.updateProfile(
+                            name = editNameInput,
+                            nickname = editNicknameInput,
+                            wallet = editWalletInput,
+                            currency = editCurrencyInput,
+                            formatDate = editDateFormatInput
+                        )
+                        showEditProfileDialog = false
+                        Toast.makeText(context, "Perfil atualizado com sucesso!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.testTag("save_profile_btn")
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfileDialog = false }) {
+                    Text("Cancelar")
+                }
             }
-        }
+        )
     }
 
     // --- Export Password Dialog (AES-256-GCM Configuration) ---
@@ -1067,7 +1047,7 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Diagnóstico do Aplicativo")
+                    Text("Diagnóstico Técnico do BD")
                 }
             },
             text = {
@@ -1105,10 +1085,10 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Notificações e Rotinas:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                            Text("• Canal Diário 08:00: Ativo (InexactRepeating)", style = MaterialTheme.typography.labelSmall)
-                            Text("• Canal Backup Assistido: Ativo", style = MaterialTheme.typography.labelSmall)
-                            Text("• Permissões: Verificadas", style = MaterialTheme.typography.labelSmall)
+                            Text("Rotinas e Segurança:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            Text("• Criptografia: AES-256-GCM Nativo", style = MaterialTheme.typography.labelSmall)
+                            Text("• Canal Diário 08:00: Ativo", style = MaterialTheme.typography.labelSmall)
+                            Text("• Arquitetura: 100% Offline (Sem Servidor)", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -1234,7 +1214,7 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Warning, contentDescription = null, tint = OverdueRed)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Atenção: Ação Irreversível")
+                    Text("Atenção: Ação Crítica")
                 }
             },
             text = {
@@ -1266,7 +1246,7 @@ fun SettingsScreen(
         )
     }
 
-    // --- Danger Zone Step 2: Final Verification Dialog (Requires typing "APAGAR") ---
+    // --- Danger Zone Step 2: Final Verification Dialog ---
     if (showClearFinalDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -1352,6 +1332,967 @@ fun SettingsScreen(
                 TextButton(onClick = { showEmergencyRestoreDialog = false }) { Text("Cancelar") }
             }
         )
+    }
+}
+
+// ==========================================
+// COMPONENTES DA TELA PRINCIPAL DE AJUSTES
+// ==========================================
+
+@Composable
+private fun UserProfileHeaderCard(
+    userName: String,
+    userNickname: String,
+    walletName: String,
+    defaultCurrency: String,
+    totalReceived: Double,
+    totalPaid: Double,
+    startDate: Long,
+    onEditProfile: () -> Unit,
+    onOpenProfileCategory: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenProfileCategory() },
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Profile presentation top row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Avatar circle with initials
+                    val initials = remember(userName) {
+                        userName.trim().split(" ")
+                            .filter { it.isNotBlank() }
+                            .take(2)
+                            .map { it.first().uppercaseChar() }
+                            .joinToString("")
+                            .ifBlank { "CF" }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = initials,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = userName,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1
+                        )
+                        Text(
+                            text = userNickname,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountBalanceWallet,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(11.dp),
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = walletName,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onEditProfile,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .testTag("btn_edit_profile_header")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Editar Perfil",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            // Real stats row from database
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Stat 1: Total Recebido
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                            contentDescription = null,
+                            tint = ExpectedTeal,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Total Recebido",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = CurrencyFormatter.format(totalReceived),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = ExpectedTeal,
+                        maxLines = 1
+                    )
+                }
+
+                // Stat 2: Total Pago
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingDown,
+                            contentDescription = null,
+                            tint = PayableRose,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Total Pago",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = CurrencyFormatter.format(totalPaid),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = PayableRose,
+                        maxLines = 1
+                    )
+                }
+
+                // Stat 3: Início de uso
+                Column(modifier = Modifier.weight(0.9f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Início do Uso",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = DateUtils.formatDate(startDate),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryMenuItem(
+    category: SettingsCategory,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .testTag("category_item_${category.name.lowercase()}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 14.dp, vertical = 13.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = category.icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column {
+                    Text(
+                        text = category.title,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = category.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+// ==========================================
+// CONTEÚDO DAS SUBTELAS INDEPENDENTES
+// ==========================================
+
+@Composable
+private fun ProfileCategoryContent(
+    userName: String,
+    userNickname: String,
+    walletName: String,
+    defaultCurrency: String,
+    dateFormat: String,
+    startDate: Long,
+    totalReceived: Double,
+    totalPaid: Double,
+    onEditClicked: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Detailed Card
+        SettingsCard(
+            title = "Dados da Conta e Carteira",
+            icon = Icons.Default.Person
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ProfileInfoRow(label = "Nome de Exibição", value = userName)
+                ProfileInfoRow(label = "Apelido / Cargo", value = userNickname)
+                ProfileInfoRow(label = "Carteira Financeira", value = walletName)
+                ProfileInfoRow(label = "Moeda Padrão", value = defaultCurrency)
+                ProfileInfoRow(label = "Formato de Data", value = dateFormat)
+                ProfileInfoRow(label = "Data de Início", value = DateUtils.formatDate(startDate))
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Button(
+                    onClick = onEditClicked,
+                    modifier = Modifier.fillMaxWidth().testTag("btn_edit_profile_subscreen")
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Editar Informações do Perfil")
+                }
+            }
+        }
+
+        // Financial Consolidated Summary Card
+        SettingsCard(
+            title = "Resumo Consolidado do Perfil",
+            icon = Icons.Default.AccountBalanceWallet,
+            iconColor = ExpectedTeal
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Total Concretizado Recebido:", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        CurrencyFormatter.format(totalReceived),
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        color = ExpectedTeal
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Total Concretizado Pago:", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        CurrencyFormatter.format(totalPaid),
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        color = PayableRose
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                val netBalance = totalReceived - totalPaid
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Saldo Real Consolidado:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                    Text(
+                        CurrencyFormatter.format(netBalance),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = if (netBalance >= 0) ExpectedTeal else PayableRose
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+        )
+    }
+}
+
+@Composable
+private fun BackupCategoryContent(
+    lastBackupTime: Long,
+    lastExportedTime: Long,
+    backupRecords: List<com.example.data.local.entity.BackupRecordEntity>,
+    onSaveFile: () -> Unit,
+    onShareFile: () -> Unit,
+    onImportFile: () -> Unit,
+    onRestoreText: () -> Unit,
+    onViewRawJson: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Backup Actions Card
+        SettingsCard(
+            title = "Exportação e Cópia de Segurança",
+            icon = Icons.Default.Backup
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = if (lastBackupTime > 0) {
+                            "Último backup gerado em: ${DateUtils.formatDateTime(lastBackupTime)}"
+                        } else {
+                            "Nenhum backup registrado até o momento."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (lastExportedTime > 0) {
+                        Text(
+                            text = "Última exportação externa: ${DateUtils.formatDateTime(lastExportedTime)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ExpectedTeal
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Exportação de Arquivo JSON (com ou sem senha AES-256-GCM):",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onSaveFile,
+                        modifier = Modifier.weight(1f).testTag("btn_export_backup_file")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Salvar .json", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = onShareFile,
+                        modifier = Modifier.weight(1f).testTag("btn_share_backup_file")
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Compartilhar", fontSize = 12.sp)
+                    }
+                }
+
+                Text(
+                    text = "Restauração Segura e Transacional:",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onImportFile,
+                        modifier = Modifier.weight(1f).testTag("btn_import_backup_file")
+                    ) {
+                        Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Selecionar .json", fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = onRestoreText,
+                        modifier = Modifier.weight(1f).testTag("btn_restore_text")
+                    ) {
+                        Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Colar Texto", fontSize = 12.sp)
+                    }
+                }
+
+                TextButton(
+                    onClick = onViewRawJson,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Ver código JSON não criptografado", fontSize = 12.sp)
+                }
+            }
+        }
+
+        // Backup History Card
+        SettingsCard(
+            title = "Histórico de Auditoria de Backups",
+            icon = Icons.Default.History,
+            iconColor = MaterialTheme.colorScheme.primary
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Registro local de integridade com status de geração e exportação confirmada:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (backupRecords.isEmpty()) {
+                    Text(
+                        text = "Nenhum histórico de backup registrado até o momento.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        backupRecords.take(5).forEach { record ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = record.fileName,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = "${DateUtils.formatDateTime(record.timestamp)} • ${String.format("%.1f KB", record.fileSize / 1024.0)} • v${record.backupVersion}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Surface(
+                                        color = when (record.status) {
+                                            "EXPORTADO" -> ExpectedTeal.copy(alpha = 0.2f)
+                                            "GERADO" -> MaterialTheme.colorScheme.primaryContainer
+                                            else -> OverdueRed.copy(alpha = 0.2f)
+                                        },
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = if (record.isEncrypted) "${record.status} (AES)" else record.status,
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = when (record.status) {
+                                                "EXPORTADO" -> ExpectedTeal
+                                                "GERADO" -> MaterialTheme.colorScheme.primary
+                                                else -> OverdueRed
+                                            },
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SecurityCategoryContent(
+    isPrivacyMode: Boolean,
+    onTogglePrivacyMode: () -> Unit,
+    isPinConfigured: Boolean,
+    onSetOrChangePin: () -> Unit,
+    onRemovePin: () -> Unit,
+    onLockNow: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SettingsCard(
+            title = "Privacidade e Bloqueio",
+            icon = Icons.Default.Security,
+            iconColor = ExpectedTeal
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Privacy Mode Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Ocultar Valores na Tela (Modo Privacidade)",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Mascara saldos no dashboard (exibe R$ ••••••). Pode ser alternado pelo ícone de olho no cabeçalho.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = isPrivacyMode,
+                        onCheckedChange = { onTogglePrivacyMode() },
+                        modifier = Modifier.testTag("switch_privacy_mode")
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // PIN Lock
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Bloqueio do Aplicativo por PIN",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = if (isPinConfigured) "Proteção por PIN ativa. O aplicativo exige autenticação ao abrir."
+                        else "Defina um PIN numérico para proteger o acesso aos seus dados financeiros.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isPinConfigured) {
+                        Button(
+                            onClick = onSetOrChangePin,
+                            modifier = Modifier.weight(1f).testTag("btn_change_pin")
+                        ) {
+                            Text("Alterar PIN", fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onRemovePin,
+                            modifier = Modifier.weight(1f).testTag("btn_remove_pin")
+                        ) {
+                            Text("Remover PIN", fontSize = 12.sp)
+                        }
+                    } else {
+                        Button(
+                            onClick = onSetOrChangePin,
+                            modifier = Modifier.fillMaxWidth().testTag("btn_set_pin")
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Ativar Proteção por PIN")
+                        }
+                    }
+                }
+
+                if (isPinConfigured) {
+                    OutlinedButton(
+                        onClick = onLockNow,
+                        modifier = Modifier.fillMaxWidth().testTag("btn_lock_app_now")
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Bloquear Aplicativo Agora")
+                    }
+                }
+            }
+        }
+
+        // Compliance & Security Information
+        SettingsCard(
+            title = "Proteção de Dados & LGPD",
+            icon = Icons.Default.CheckCircle,
+            iconColor = ExpectedTeal
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "• Armazenamento 100% Offline: Nenhum dado financeiro sai do seu celular.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = "• Criptografia AES-256-GCM: Arquivos de exportação podem ser protegidos com chave militar.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = "• Sem Servidores ou Rastreadores: Privacidade absoluta conforme a LGPD.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationsCategoryContent(
+    notifyPayables: Boolean,
+    onToggleNotifyPayables: (Boolean) -> Unit,
+    notifyReceivables: Boolean,
+    onToggleNotifyReceivables: (Boolean) -> Unit,
+    notificationTime: String,
+    onTestDueNotification: () -> Unit,
+    onTestBackupNotification: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SettingsCard(
+            title = "Lembretes Diários de Vencimentos",
+            icon = Icons.Default.NotificationsActive,
+            iconColor = MaterialTheme.colorScheme.primary
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Lembretes programados diariamente às $notificationTime sobre contas a pagar, empréstimos e recebimentos que vencem no dia ou estão em atraso (ignora registros quitados).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // Toggle Payables
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Lembrete de Contas a Pagar",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Avisa sobre contas que vencem hoje ou estão atrasadas.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = notifyPayables,
+                        onCheckedChange = onToggleNotifyPayables
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // Toggle Receivables
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Lembrete de Recebimentos & Empréstimos",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Avisa sobre valores e vendas a receber com prazo vencendo.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = notifyReceivables,
+                        onCheckedChange = onToggleNotifyReceivables
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                Text(
+                    text = "Testes Rápidos de Alertas:",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onTestDueNotification,
+                        modifier = Modifier.weight(1f).testTag("btn_test_notification")
+                    ) {
+                        Text("Testar Notificação (08h)", fontSize = 11.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = onTestBackupNotification,
+                        modifier = Modifier.weight(1f).testTag("btn_test_backup_notification")
+                    ) {
+                        Text("Aviso Backup Pronto", fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreferencesCategoryContent(
+    themeMode: String,
+    onSetThemeMode: (String) -> Unit,
+    defaultCurrency: String,
+    dateFormat: String
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Theme Selector
+        SettingsCard(
+            title = "Aparência e Tema",
+            icon = Icons.Default.Brightness4
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    RadioButton(
+                        selected = themeMode == "DARK",
+                        onClick = { onSetThemeMode("DARK") },
+                        modifier = Modifier.testTag("theme_dark_radio")
+                    )
+                    Text("Modo Escuro (Recomendado / Fintech style)")
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    RadioButton(
+                        selected = themeMode == "LIGHT",
+                        onClick = { onSetThemeMode("LIGHT") },
+                        modifier = Modifier.testTag("theme_light_radio")
+                    )
+                    Text("Modo Claro")
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    RadioButton(
+                        selected = themeMode == "SYSTEM",
+                        onClick = { onSetThemeMode("SYSTEM") },
+                        modifier = Modifier.testTag("theme_system_radio")
+                    )
+                    Text("Seguir Padrão do Sistema")
+                }
+            }
+        }
+
+        // Regional and Format Preferences
+        SettingsCard(
+            title = "Padrões Regionais e Exibição",
+            icon = Icons.Default.Tune
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileInfoRow(label = "Moeda Padrão de Exibição", value = defaultCurrency)
+                ProfileInfoRow(label = "Formato de Datas", value = dateFormat)
+                ProfileInfoRow(label = "Idioma", value = "Português (Brasil)")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DataStorageCategoryContent(
+    totalLoans: Int,
+    totalReceivables: Int,
+    totalPayables: Int,
+    totalHistory: Int,
+    hasSafetyBackup: Boolean,
+    onOpenDiagnostics: () -> Unit,
+    onClearDatabase: () -> Unit,
+    onEmergencyRestore: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // Database Metrics
+        SettingsCard(
+            title = "Métricas do Banco de Dados",
+            icon = Icons.Default.Storage
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileInfoRow(label = "Empréstimos Cadastrados", value = "$totalLoans registros")
+                ProfileInfoRow(label = "Vendas / Recebíveis", value = "$totalReceivables registros")
+                ProfileInfoRow(label = "Dívidas a Pagar", value = "$totalPayables registros")
+                ProfileInfoRow(label = "Histórico de Transações", value = "$totalHistory movimentações")
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Button(
+                    onClick = onOpenDiagnostics,
+                    modifier = Modifier.fillMaxWidth().testTag("btn_open_diagnostics")
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Executar Diagnóstico Técnico")
+                }
+            }
+        }
+
+        // Danger Zone
+        SettingsCard(
+            title = "Zona de Perigo / Recuperação",
+            icon = Icons.Default.DeleteForever,
+            iconColor = PayableRose
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Exclusão total com criação automática de backup de segurança pré-limpeza.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (hasSafetyBackup) {
+                    OutlinedButton(
+                        onClick = onEmergencyRestore,
+                        modifier = Modifier.fillMaxWidth().testTag("btn_emergency_restore")
+                    ) {
+                        Icon(Icons.Default.Restore, contentDescription = null, tint = ExpectedTeal)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Restaurar Cópia de Emergência Pré-Limpeza", color = ExpectedTeal)
+                    }
+                }
+
+                Button(
+                    onClick = onClearDatabase,
+                    colors = ButtonDefaults.buttonColors(containerColor = OverdueRed),
+                    modifier = Modifier.fillMaxWidth().testTag("btn_clear_db")
+                ) {
+                    Icon(Icons.Default.DeleteForever, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Limpar Banco de Dados (2 Etapas)")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutCategoryContent() {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SettingsCard(
+            title = "Sobre o Aplicativo",
+            icon = Icons.Default.Info
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Controle Financeiro Comercial",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Text(
+                    text = "Versão: 1.1 (v2 - Room SQLite com Migração Segura)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Arquitetura 100% Offline: Nenhum dado trafega por servidores externos. Todos os registros permanecem salvos com segurança criptográfica unicamente no seu dispositivo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Padrão de Segurança: Criptografia AES-256-GCM para exportações e backups.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ExpectedTeal
+                )
+            }
+        }
     }
 }
 

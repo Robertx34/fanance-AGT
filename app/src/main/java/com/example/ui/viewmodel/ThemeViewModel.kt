@@ -88,6 +88,77 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _userName = MutableStateFlow(prefs.getString("user_name", "Administrador") ?: "Administrador")
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    private val _userNickname = MutableStateFlow(prefs.getString("user_nickname", "Gestor Financeiro") ?: "Gestor Financeiro")
+    val userNickname: StateFlow<String> = _userNickname.asStateFlow()
+
+    private val _walletName = MutableStateFlow(prefs.getString("wallet_name", "Carteira Principal") ?: "Carteira Principal")
+    val walletName: StateFlow<String> = _walletName.asStateFlow()
+
+    private val _defaultCurrency = MutableStateFlow(prefs.getString("default_currency", "BRL (R$)") ?: "BRL (R$)")
+    val defaultCurrency: StateFlow<String> = _defaultCurrency.asStateFlow()
+
+    private val _dateFormat = MutableStateFlow(prefs.getString("date_format", "DD/MM/AAAA") ?: "DD/MM/AAAA")
+    val dateFormat: StateFlow<String> = _dateFormat.asStateFlow()
+
+    private val initialStart = prefs.getLong("app_start_date", 0L).let {
+        if (it == 0L) {
+            val now = System.currentTimeMillis()
+            prefs.edit().putLong("app_start_date", now).apply()
+            now
+        } else it
+    }
+    private val _appStartDate = MutableStateFlow(initialStart)
+    val appStartDate: StateFlow<Long> = _appStartDate.asStateFlow()
+
+    private val _notifyPayables = MutableStateFlow(prefs.getBoolean("notify_payables", true))
+    val notifyPayables: StateFlow<Boolean> = _notifyPayables.asStateFlow()
+
+    private val _notifyReceivables = MutableStateFlow(prefs.getBoolean("notify_receivables", true))
+    val notifyReceivables: StateFlow<Boolean> = _notifyReceivables.asStateFlow()
+
+    private val _notificationTime = MutableStateFlow(prefs.getString("notification_time", "08:00") ?: "08:00")
+    val notificationTime: StateFlow<String> = _notificationTime.asStateFlow()
+
+    fun updateProfile(
+        name: String,
+        nickname: String,
+        wallet: String,
+        currency: String = "BRL (R$)",
+        formatDate: String = "DD/MM/AAAA"
+    ) {
+        _userName.value = name.trim().ifBlank { "Administrador" }
+        _userNickname.value = nickname.trim().ifBlank { "Gestor Financeiro" }
+        _walletName.value = wallet.trim().ifBlank { "Carteira Principal" }
+        _defaultCurrency.value = currency
+        _dateFormat.value = formatDate
+
+        prefs.edit()
+            .putString("user_name", _userName.value)
+            .putString("user_nickname", _userNickname.value)
+            .putString("wallet_name", _walletName.value)
+            .putString("default_currency", _defaultCurrency.value)
+            .putString("date_format", _dateFormat.value)
+            .apply()
+    }
+
+    fun setNotifyPayables(enabled: Boolean) {
+        _notifyPayables.value = enabled
+        prefs.edit().putBoolean("notify_payables", enabled).apply()
+    }
+
+    fun setNotifyReceivables(enabled: Boolean) {
+        _notifyReceivables.value = enabled
+        prefs.edit().putBoolean("notify_receivables", enabled).apply()
+    }
+
+    fun setNotificationTime(time: String) {
+        _notificationTime.value = time
+        prefs.edit().putString("notification_time", time).apply()
+    }
+
     private fun hashPin(pin: String): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
         val bytes = md.digest("CF_SALT_$pin".toByteArray(Charsets.UTF_8))
