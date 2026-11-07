@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +46,8 @@ fun AppTopHeader(
     searchQuery: String = "",
     onSearchQueryChange: (String) -> Unit = {},
     onCloseSearch: () -> Unit = {},
+    isPrivacyMode: Boolean = false,
+    onTogglePrivacy: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
@@ -168,6 +172,21 @@ fun AppTopHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End
                     ) {
+                        if (onTogglePrivacy != null) {
+                            IconButton(
+                                onClick = onTogglePrivacy,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .testTag("header_privacy_toggle")
+                            ) {
+                                Icon(
+                                    imageVector = if (isPrivacyMode) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (isPrivacyMode) "Exibir Valores" else "Ocultar Valores",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
                         if (onSearchClick != null) {
                             IconButton(
                                 onClick = onSearchClick,

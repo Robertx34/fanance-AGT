@@ -4,12 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.entity.BackupRecordEntity
 import com.example.data.local.entity.ItemStatus
 import com.example.data.local.entity.LoanEntity
 import com.example.data.local.entity.PayableEntity
 import com.example.data.local.entity.PaymentHistoryEntity
-import com.example.data.local.entity.ReceivableEntity
 import com.example.data.local.entity.ReceivableCategory
+import com.example.data.local.entity.ReceivableEntity
 import com.example.data.repository.FinancialRepository
 import com.example.model.DashboardItem
 import com.example.model.FilterOption
@@ -22,10 +23,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 
-class FinancialViewModel(application: Application) : AndroidViewModel(application) {
+class FinancialViewModel(private val app: Application) : AndroidViewModel(app) {
 
-    private val repository = FinancialRepository(AppDatabase.getInstance(application))
+    private val repository = FinancialRepository(AppDatabase.getInstance(app))
 
     val rawLoans: StateFlow<List<LoanEntity>> = repository.loans.stateIn(
         scope = viewModelScope,
@@ -46,6 +48,12 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
     )
 
     val rawHistory: StateFlow<List<PaymentHistoryEntity>> = repository.allHistory.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val backupRecords: StateFlow<List<BackupRecordEntity>> = repository.backupRecords.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -152,7 +160,6 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // --- Calculations for Dashboard ---
-    // Vendas a Receber Exclusivo (Apenas Categoria Venda)
     val totalSalesAmount: StateFlow<Double> = rawReceivables.combine(rawReceivables) { list, _ ->
         list.filter {
             it.status != ItemStatus.PAID &&
@@ -175,14 +182,12 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
         list.filter { it.status != ItemStatus.PAID }.sumOf { it.remainingBalance }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Total a Receber Geral = Total Receivables + Total Loans Balance
     val totalToReceive: StateFlow<Double> = combine(
         totalLoansReceivable, totalReceivablesAmount
     ) { loanBal, recBal ->
         loanBal + recBal
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Juros a Receber (Mês Vigente) = Soma dos juros dos empréstimos ativos cujo vencimento (ou data de criação) pertence ao mês atual
     val totalInterestToReceive: StateFlow<Double> = rawLoans.combine(rawLoans) { list, _ ->
         list.filter { loan ->
             if (loan.status == ItemStatus.PAID) return@filter false
@@ -191,15 +196,12 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
         }.sumOf { it.calculatedInterest }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Total a Pagar = Sum of pending debt balances
     val totalToPay: StateFlow<Double> = rawPayables.combine(rawPayables) { list, _ ->
         list.filter { it.status != ItemStatus.PAID }.sumOf { it.remainingBalance }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Entradas Esperadas = Sum of interest for active loans due in current month
     val expectedIncomeCurrentMonth: StateFlow<Double> = totalInterestToReceive
 
-    // Próximas Cobranças (Empréstimos e Recebíveis/Vendas a cobrar próximos)
     val upcomingCollections: StateFlow<List<DashboardItem>> = combine(
         rawLoans, rawReceivables
     ) { loans, receivables ->
@@ -211,14 +213,12 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
         (loanItems + recItems).sortedWith(compareBy<DashboardItem> { it.dueDate == null }.thenBy { it.dueDate ?: Long.MAX_VALUE })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Próximos Vencimentos (Dívidas a pagar próximas)
     val upcomingPayables: StateFlow<List<PayableEntity>> = rawPayables.combine(rawPayables) { list, _ ->
         val todayStart = DateUtils.getStartOfDay()
         list.filter { it.status != ItemStatus.PAID && (it.dueDate == null || it.dueDate >= todayStart) }
             .sortedWith(compareBy<PayableEntity> { it.dueDate == null }.thenBy { it.dueDate ?: Long.MAX_VALUE })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Contas Vencidas (Empréstimos, Vendas e Dívidas vencidas)
     val overdueItems: StateFlow<List<DashboardItem>> = combine(
         rawLoans, rawReceivables, rawPayables
     ) { loans, receivables, payables ->
@@ -293,36 +293,153 @@ class FinancialViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun getHistoryForItem(type: String, itemId: Long) = repository.getHistoryForItem(type, itemId)
 
-    // --- Backup & Reset ---
-    fun generateBackupJson(): String {
+    // --- Backup & Restore (Secure & Transactional) ---
+    fun generateBackupJson(password: String? = null): String {
         return BackupManager.generateBackupJson(
             loans = rawLoans.value,
             receivables = rawReceivables.value,
             payables = rawPayables.value,
-            history = rawHistory.value
+            history = rawHistory.value,
+            password = password
         )
     }
 
-    fun restoreBackupJson(jsonString: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun restoreBackupTransactional(
+        jsonString: String,
+        password: String? = null,
+        onSuccess: (BackupManager.ParsedBackup) -> Unit,
+        onError: (String) -> Unit
+    ) {
         viewModelScope.launch {
             try {
-                val parsed = BackupManager.parseBackupJson(jsonString)
-                repository.clearAllData()
-                parsed.loans.forEach { repository.insertLoan(it) }
-                parsed.receivables.forEach { repository.insertReceivable(it) }
-                parsed.payables.forEach { repository.insertPayable(it) }
-                parsed.history.forEach { repository.insertPaymentHistory(it) }
-                onSuccess()
+                // If encrypted, decrypt payload first
+                val decryptedJson = if (BackupManager.isBackupEncrypted(jsonString)) {
+                    if (password.isNullOrBlank()) {
+                        onError("Este arquivo é protegido por senha. Por favor, informe a senha de recuperação.")
+                        return@launch
+                    }
+                    try {
+                        BackupManager.decryptBackup(jsonString, password)
+                    } catch (secEx: Exception) {
+                        onError("Senha incorreta ou integridade do arquivo violada: ${secEx.localizedMessage}")
+                        return@launch
+                    }
+                } else {
+                    jsonString
+                }
+
+                // Validate and parse
+                val parsed = BackupManager.parseBackupJson(decryptedJson)
+
+                // Perform transactional restoration (all-or-nothing rollback on error)
+                repository.restoreAll(
+                    loans = parsed.loans,
+                    receivables = parsed.receivables,
+                    payables = parsed.payables,
+                    history = parsed.history
+                )
+                onSuccess(parsed)
             } catch (e: Exception) {
-                onError(e.localizedMessage ?: "Erro ao restaurar backup.")
+                onError("Falha na restauração: ${e.localizedMessage ?: "Arquivo de backup inválido."}")
             }
+        }
+    }
+
+    fun recordBackup(
+        fileName: String,
+        fileSize: Long,
+        isEncrypted: Boolean,
+        status: String = "GERADO",
+        onComplete: (Long) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val record = BackupRecordEntity(
+                timestamp = System.currentTimeMillis(),
+                fileName = fileName,
+                fileSize = fileSize,
+                status = status,
+                backupVersion = BackupManager.CURRENT_BACKUP_VERSION,
+                isEncrypted = isEncrypted
+            )
+            val id = repository.addBackupRecord(record)
+            onComplete(id)
+        }
+    }
+
+    fun updateBackupStatus(id: Long, status: String) {
+        viewModelScope.launch {
+            repository.updateBackupRecordStatus(id, status)
+        }
+    }
+
+    // --- Safety Pre-Wipe Backup & Emergency Recovery ---
+    private fun getSafetyFile(): File {
+        val dir = File(app.filesDir, "safety_backups")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "pre_wipe_safety.json")
+    }
+
+    fun createPreWipeSafetyBackup(): Boolean {
+        return try {
+            val json = generateBackupJson(password = null)
+            val file = getSafetyFile()
+            file.writeText(json, Charsets.UTF_8)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun hasSafetyBackup(): Boolean {
+        val file = getSafetyFile()
+        return file.exists() && file.length() > 0
+    }
+
+    fun restoreSafetyBackup(
+        onSuccess: (BackupManager.ParsedBackup) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val file = getSafetyFile()
+        if (!file.exists()) {
+            onError("Nenhuma cópia de segurança prévia encontrada.")
+            return
+        }
+        try {
+            val json = file.readText(Charsets.UTF_8)
+            restoreBackupTransactional(json, password = null, onSuccess = onSuccess, onError = onError)
+        } catch (e: Exception) {
+            onError("Erro ao ler cópia de segurança: ${e.localizedMessage}")
         }
     }
 
     fun clearAllDatabase(onComplete: () -> Unit) {
         viewModelScope.launch {
+            createPreWipeSafetyBackup()
             repository.clearAllData()
             onComplete()
         }
+    }
+
+    // --- Diagnostics Data ---
+    data class DatabaseDiagnostics(
+        val totalLoans: Int,
+        val totalReceivables: Int,
+        val totalPayables: Int,
+        val totalHistory: Int,
+        val totalBackupsRecorded: Int,
+        val dbFileSizeBytes: Long
+    )
+
+    fun getDiagnostics(): DatabaseDiagnostics {
+        val dbFile = app.getDatabasePath("controle_financeiro.db")
+        val size = if (dbFile.exists()) dbFile.length() else 0L
+        return DatabaseDiagnostics(
+            totalLoans = rawLoans.value.size,
+            totalReceivables = rawReceivables.value.size,
+            totalPayables = rawPayables.value.size,
+            totalHistory = rawHistory.value.size,
+            totalBackupsRecorded = backupRecords.value.size,
+            dbFileSizeBytes = size
+        )
     }
 }

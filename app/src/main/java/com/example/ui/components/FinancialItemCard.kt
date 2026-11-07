@@ -70,8 +70,10 @@ fun LoanItemCard(
     onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val progress = if (loan.amount > 0) {
-        (loan.amountReceived / loan.amount).coerceIn(0.0, 1.0).toFloat()
+    val progress = if (loan.isSettled) {
+        1f
+    } else if (loan.totalWithInterest > 0) {
+        (loan.amountReceived / loan.totalWithInterest).coerceIn(0.0, 1.0).toFloat()
     } else 0f
 
     Card(

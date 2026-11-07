@@ -70,6 +70,7 @@ fun DashboardScreen(
     onNavigateToPayables: () -> Unit,
     onNavigateToLoansThisMonth: () -> Unit,
     onAddNewClick: () -> Unit,
+    isPrivacyMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val totalSalesAmount by viewModel.totalSalesAmount.collectAsStateWithLifecycle()
@@ -131,6 +132,7 @@ fun DashboardScreen(
                             gradientColors = listOf(Color(0xFF1E293B), Color(0xFF0F172A)),
                             testTag = "card_vendas_a_receber",
                             modifier = Modifier.weight(1f),
+                            isPrivate = isPrivacyMode,
                             onClick = onNavigateToSales
                         )
 
@@ -143,6 +145,7 @@ fun DashboardScreen(
                             gradientColors = listOf(Color(0xFF1E293B), Color(0xFF0F172A)),
                             testTag = "card_juros_a_receber",
                             modifier = Modifier.weight(1f),
+                            isPrivate = isPrivacyMode,
                             onClick = onNavigateToLoansThisMonth
                         )
                     }
@@ -161,6 +164,7 @@ fun DashboardScreen(
                             gradientColors = listOf(Color(0xFF2A1920), Color(0xFF170D12)),
                             testTag = "card_total_a_pagar",
                             modifier = Modifier.weight(1f),
+                            isPrivate = isPrivacyMode,
                             onClick = onNavigateToPayables
                         )
 
@@ -173,6 +177,7 @@ fun DashboardScreen(
                             gradientColors = listOf(Color(0xFF132A27), Color(0xFF0A1816)),
                             testTag = "card_total_a_receber",
                             modifier = Modifier.weight(1f),
+                            isPrivate = isPrivacyMode,
                             onClick = onNavigateToReceivables
                         )
                     }

@@ -148,4 +148,35 @@ object NotificationHelper {
             }
         }
     }
+
+    fun checkAndNotifyAssistedBackup(context: Context, isTest: Boolean = false) {
+        createNotificationChannel(context)
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            8003,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = if (isTest) "Lembrete de Backup (Teste)" else "Lembrete de Segurança: Backup"
+        val message = "Mantenha seus dados financeiros seguros exportando uma cópia criptografada em Configurações."
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        try {
+            NotificationManagerCompat.from(context).notify(8003, builder.build())
+        } catch (_: SecurityException) {
+            // If notification permission not granted
+        }
+    }
 }

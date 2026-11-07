@@ -1,8 +1,8 @@
 package com.example.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-
 import com.example.util.DateUtils
 
 @Entity(tableName = "loans")
@@ -16,7 +16,8 @@ data class LoanEntity(
     val dueDate: Long? = null,
     val hasNoDueDate: Boolean = false,
     val amountReceived: Double = 0.0,
-    val notes: String = ""
+    val notes: String = "",
+    @ColumnInfo(defaultValue = "0") val settledUnderLegacyRule: Boolean = false
 ) {
     val calculatedInterest: Double
         get() = amount * (interestRate / 100.0)
@@ -24,13 +25,16 @@ data class LoanEntity(
     val totalWithInterest: Double
         get() = amount + calculatedInterest
 
+    val isSettled: Boolean
+        get() = amountReceived >= totalWithInterest || (settledUnderLegacyRule && amountReceived >= amount)
+
     val remainingBalance: Double
-        get() = maxOf(0.0, amount - amountReceived)
+        get() = if (isSettled) 0.0 else maxOf(0.0, totalWithInterest - amountReceived)
 
     val status: ItemStatus
         get() {
             return when {
-                amountReceived >= amount -> ItemStatus.PAID
+                isSettled -> ItemStatus.PAID
                 amountReceived > 0 -> ItemStatus.PARTIAL
                 !hasNoDueDate && dueDate != null && dueDate < DateUtils.getStartOfDay() -> ItemStatus.OVERDUE
                 else -> ItemStatus.PENDING

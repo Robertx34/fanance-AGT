@@ -46,6 +46,7 @@ fun SummaryCard(
     gradientColors: List<Color>,
     testTag: String,
     modifier: Modifier = Modifier,
+    isPrivate: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     Surface(
@@ -123,7 +124,7 @@ fun SummaryCard(
                 }
 
                 Text(
-                    text = CurrencyFormatter.format(value),
+                    text = if (isPrivate) "R$ ••••••" else CurrencyFormatter.format(value),
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
